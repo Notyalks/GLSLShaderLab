@@ -8,39 +8,38 @@ void main()
      // Normalized pixel coordinates (from 0 to 1)
     vec2 uv = gl_FragCoord.xy/iResolution.xy;
     
-    float cost=cos(iTime+uv.y*4.0)*1.0;
-  
-    float fs=2.0+cost*0.8;
+    // waveform to create a motion on the lines 
+    float wave=cos(iTime + uv.x * 4.0) * 0.8;
+    
+    float fs=2.0 + wave * 1.8;
    
-    if(uv.x>(0.1*cost+0.2)){
+    //horizontal lines 
+    if(uv.y > (0.1*wave+0.2)){
         
-        fragColor = vec4(1.0,0,0,0)*fs;
+        fragColor = vec4(1.0,0,0,0) * fs;
     } 
-    if(uv.x>(0.1*cost+0.4)){
+    if(uv.y > (0.1* wave + 0.4)){
         
-        fragColor = vec4(0.7,0.4,0,0)*fs;
+        fragColor = vec4(0.7,0.4,0,0) * fs;
     } 
-    if(uv.x>(0.1*cost+0.7)){
+    if(uv.y > (0.1 * wave + 0.7)){
         
-        fragColor = vec4(.5)*fs;
+        fragColor = vec4(.5) * fs;
     } 
      //corte vertical
-    if(uv.x<(0.1*cost+0.2)){
+    if(uv.y < (0.1 * wave + 0.2)){
         
         fragColor = vec4(0);
     }
-    //corte vertical
-    if(uv.x>(0.1*cost+0.9)){
+
+    //vertical cut 
+    if(uv.y > (0.1 * wave + 0.9)){
         fragColor = vec4(0);
     }
-    if(uv.y<0.1){
+    if(uv.x < 0.1){
      fragColor = vec4(0);
     }
-    if(uv.y>0.9){
+    if(uv.x > 0.9){
      fragColor = vec4(0);
     }
-   
-    
-
-
 }
