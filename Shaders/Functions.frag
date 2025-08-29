@@ -1,68 +1,89 @@
 #version 330 core
 out vec4 FragColor;
+ 
 uniform float iTime;
 uniform vec2 iResolution;
 uniform vec2 iMouse;
-uniform int iMouseClick;  // 1 quando o mouse esta clicado, 0 quando nao
-
-// Input buffers (iChannels)
-uniform sampler2D iChannel0;
-uniform sampler2D iChannel1;
-uniform sampler2D iChannel2;
-uniform sampler2D iChannel3;
-
-// Function to draw circle with smooth border
-vec4 DrawCircle(vec2 uv, vec3 color, vec2 pos, float radius, float edge) {
-    vec2 posn = pos / iResolution.xy;
-    float dist = distance(uv, posn);
-    float alpha = smoothstep(radius, radius - edge, dist);
-    return vec4(color, alpha);
+uniform float iMouseClick;
+uniform float iClickCount;
+ 
+float CircleDist(vec2 uv, vec2 pos) {
+    return distance(uv, pos);
 }
-
-// Function to apply feedback using previous buffers
-vec4 ApplyFeedback(vec2 uv, vec4 currentColor) {
-    // Read previous frame from iChannel0
-    vec4 previousFrame = texture(iChannel0, uv);
-    
-    // Apply small displacement to create trails
-    vec2 offset = vec2(sin(iTime * 0.5) * 0.001, cos(iTime * 0.3) * 0.001);
-    vec4 feedbackColor = texture(iChannel0, uv + offset);
-    
-    // Mix current frame with feedback, creating trails
-    return mix(currentColor, feedbackColor * 0.95, 0.3);
+ 
+float SquareDist(vec2 uv, vec2 pos) {
+    vec2 d = abs(uv - pos) - vec2(0.1);
+    return max(d.x, d.y);
 }
-
+ 
+float EquilateralTriangleDist(vec2 uv, vec2 pos) {
+    vec2 p = uv - pos;
+    p /= 0.1;
+ 
+    const float k = sqrt(3.0);
+    p.x = abs(p.x) - 1.0;
+    p.y = p.y + 1.0 / k;
+    if (p.x + k * p.y > 0.0)
+        p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
+    p.x -= clamp(p.x, -2.0, 0.0);
+    return -length(p) * sign(p.y);
+}
+ 
+// Forma estrela: distância baseada em raio e angulo
+float StarDist(vec2 uv, vec2 pos) {
+    vec2 p = uv - pos;
+    p /= 0.1;
+    float angle = atan(p.y, p.x);
+    float radius = length(p);
+    float spikes = 5.0;
+    float r = cos(spikes * angle) * 0.5 + 0.5;
+    return radius - r;
+}
+ 
+float CubeDist(vec2 uv, vec2 pos) {
+    vec2 p = uv - pos;
+    return max(abs(p.x), abs(p.y)) - 0.1;
+}
+ 
 void main()
 {
     vec2 uv = gl_FragCoord.xy / iResolution.xy;
-    vec2 mouseNorm = iMouse.xy / iResolution.xy;
-    
-    // Animated base color
-    vec3 baseColor = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0,2,4));
-    
-    // Draw circle at mouse position only when clicking
-    vec4 circle = vec4(0.0);
-    if (iMouseClick == 1) {
-        circle = DrawCircle(uv, vec3(0.0, 0.0, 1.0), iMouse.xy, 0.1, 0.01);
+    vec3 baseColor = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 2, 4));
+ 
+    vec2 mouseNorm = iMouse / iResolution;
+ 
+    int shapeType = int(mod(iClickCount, 5.0));
+    float edge = 0.01;
+    float outlineWidth = 0.005;
+ 
+    float dist = 1.0; // inicial distante do shape (fora da forma)
+    vec3 shapeColor = vec3(0.0);
+    bool drawShape = (iMouseClick > 0.5);
+ 
+    if(drawShape) {
+        if (shapeType == 0) dist = CircleDist(uv, mouseNorm);
+        else if (shapeType == 1) dist = EquilateralTriangleDist(uv, mouseNorm);
+        else if (shapeType == 2) dist = SquareDist(uv, mouseNorm);
+        else if (shapeType == 3) dist = StarDist(uv, mouseNorm);
+        else if (shapeType == 4) dist = CubeDist(uv, mouseNorm);
+ 
+        if (shapeType == 0) shapeColor = vec3(0.0, 0.0, 1.0);
+        else if (shapeType == 1) shapeColor = vec3(1.0, 0.0, 0.0);
+        else if (shapeType == 2) shapeColor = vec3(0.0, 1.0, 0.0);
+        else if (shapeType == 3) shapeColor = vec3(1.0, 1.0, 0.0);
+        else if (shapeType == 4) shapeColor = vec3(1.0, 0.0, 1.0);
     }
-    
-    // Current color without feedback
-    vec4 currentColor = mix(vec4(baseColor, 1.0), circle, circle.a);
-    
-    // Apply feedback using previous buffers
-    vec4 finalColor = ApplyFeedback(uv, currentColor);
-    
-    // Example usage of other channels
-    // iChannel1 can be used for additional textures
-    vec4 texture1 = texture(iChannel1, uv * 2.0);
-    
-    // iChannel2 can be used for noise or other effects
-    vec4 texture2 = texture(iChannel2, uv + iTime * 0.1);
-    
-    // Subtle mix of additional channels
-    finalColor.rgb += texture1.rgb * 0.1 + texture2.rgb * 0.05;
-    
-    FragColor = finalColor;
+ 
+    float alpha = smoothstep(edge, edge - 0.005, dist);
+    float outline = smoothstep(edge + outlineWidth, edge, dist) - smoothstep(edge, edge - 0.005, dist);
+ 
+    vec3 outlineColor = vec3(0.0);
+ 
+    vec3 color = baseColor;
+    color = mix(color, outlineColor, outline);
+    color = mix(color, shapeColor, alpha);
+ 
+    FragColor = vec4(color, 1.0);
 }
 
-
+ 
