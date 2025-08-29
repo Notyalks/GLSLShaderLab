@@ -54,6 +54,18 @@ namespace GLSLShaderLab
         public void SetVector2(string name, Vector2 value) =>
             GL.Uniform2(GL.GetUniformLocation(Handle, name), value);
 
+        public void SetInt(string name, int value) =>
+            GL.Uniform1(GL.GetUniformLocation(Handle, name), value);
+
+        public void SetTexture(string name, int textureUnit)
+        {
+            int location = GL.GetUniformLocation(Handle, name);
+            if (location >= 0)
+            {
+                GL.Uniform1(location, textureUnit);
+            }
+        }
+
         public void Dispose()
         {
             Dispose(true);
