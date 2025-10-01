@@ -5,6 +5,11 @@ using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
+using Image = SixLabors.ImageSharp.Image;
 
 namespace GLSLShaderLab
 {
@@ -37,14 +42,20 @@ namespace GLSLShaderLab
         // Model transformation
         private float _rotationY = 0.0f;
 
-        // Quad de tela
+        // Fullscreen quad
         private int _vao;
         private int _vbo;
         private int _ebo;
 
-        // Novo enum para modo de renderização
+        // Render mode
         private enum RenderMode { Fullscreen2D, Model3D }
         private RenderMode _renderMode = RenderMode.Fullscreen2D;
+
+        // Textures
+        private List<int> _loadedTextures = new();
+        private List<string> _loadedTextureNames = new();
+        private const string TextureFolderName = "textures"; // <- use plural
+        private string _resolvedTextureDir = "";
 
         public Window(int width, int height, string title, ShaderSelector.ShaderInfo selectedShader, ModelSelector.ModelInfo selectedModel)
             : base(GameWindowSettings.Default, new NativeWindowSettings()
@@ -76,7 +87,7 @@ namespace GLSLShaderLab
             GL.ClearColor(0.1f, 0.1f, 0.1f, 1.0f);
             GL.Enable(EnableCap.DepthTest);
 
-            // 🔹 Inicializa quad fullscreen
+            // Fullscreen quad
             _vao = GL.GenVertexArray();
             GL.BindVertexArray(_vao);
 
@@ -104,7 +115,7 @@ namespace GLSLShaderLab
             GL.EnableVertexAttribArray(1);
             GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, stride, 2 * sizeof(float));
 
-            // Inicializa buffer manager
+            // Buffer manager
             _bufferManager = new BufferManager(Size.X, Size.Y);
 
             try { _copyShader = new Shader("Shaders/copy.vert", "Shaders/copy.frag"); }
@@ -112,6 +123,10 @@ namespace GLSLShaderLab
 
             LoadShader(_selectedShader);
             LoadModel(_selectedModel);
+
+            // Resolve e carrega texturas a partir de "textures"
+            _resolvedTextureDir = ResolveTexturesFolder();
+            LoadTexturesFromFolder(_resolvedTextureDir, includeSubdirs: false);
 
             Console.WriteLine("Controles:");
             Console.WriteLine(" WASD : Mover câmera");
@@ -122,8 +137,126 @@ namespace GLSLShaderLab
             Console.WriteLine(" R   : Resetar câmera");
             Console.WriteLine(" B   : Toggle buffer system (iChannels)");
             Console.WriteLine(" M   : Alternar modo 2D/3D");
-            Console.WriteLine(" H   : Mostrar/ocultar ajuda");
+            Console.WriteLine(" H   : Mostrar/ocultar ajuda + listar texturas");
+            Console.WriteLine(" F5  : Recarregar texturas da pasta");
             Console.WriteLine(" ESC : Sair");
+            Console.WriteLine($"Texturas: pasta resolvida para: {_resolvedTextureDir}");
+        }
+
+        // Resolve possíveis locais da pasta textures
+        private string ResolveTexturesFolder()
+        {
+            var candidates = new List<string>
+            {
+                Path.Combine(AppContext.BaseDirectory, TextureFolderName),
+                Path.Combine(Directory.GetCurrentDirectory(), TextureFolderName),
+                Path.Combine(AppContext.BaseDirectory, "Assets", TextureFolderName),
+                Path.Combine(AppContext.BaseDirectory, "Resources", TextureFolderName),
+            };
+
+            foreach (var c in candidates)
+                if (Directory.Exists(c)) return c;
+
+            // fallback: se não existir, retorna caminho no diretório atual
+            return Path.Combine(Directory.GetCurrentDirectory(), TextureFolderName);
+        }
+
+        // Libera e limpa a lista de texturas carregadas
+        private void ReleaseLoadedTextures()
+        {
+            foreach (var tex in _loadedTextures)
+            {
+                if (tex != 0) GL.DeleteTexture(tex);
+            }
+            _loadedTextures.Clear();
+            _loadedTextureNames.Clear();
+        }
+
+        // Carrega todas as texturas da pasta especificada
+        private void LoadTexturesFromFolder(string folderPath, bool includeSubdirs = false)
+        {
+            // Evita vazamento: libera texturas anteriores antes de recarregar
+            ReleaseLoadedTextures();
+
+            if (!Directory.Exists(folderPath))
+            {
+                Console.WriteLine($"[TEXTURE] Pasta não encontrada: {folderPath}");
+                return;
+            }
+
+            var searchOption = includeSubdirs ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+
+            // extensões suportadas (case-insensitive)
+            var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".png", ".jpg", ".jpeg", ".bmp", ".tga" };
+
+            int found = 0, ok = 0, fail = 0;
+
+            foreach (var file in Directory.EnumerateFiles(folderPath, "*.*", searchOption))
+            {
+                var ext = Path.GetExtension(file);
+                if (!allowed.Contains(ext)) continue;
+
+                found++;
+                int texId = LoadTexture(file);
+                if (texId != 0)
+                {
+                    _loadedTextures.Add(texId);
+                    _loadedTextureNames.Add(Path.GetFileName(file));
+                    ok++;
+                }
+                else fail++;
+            }
+
+            Console.WriteLine($"[TEXTURE] varridos: {found}, carregados: {ok}, falhas: {fail}");
+            if (ok > 0)
+            {
+                for (int i = 0; i < _loadedTextureNames.Count; i++)
+                    Console.WriteLine($"  texture{i}: {_loadedTextureNames[i]}");
+            }
+            else
+            {
+                Console.WriteLine("[TEXTURE] Nenhuma textura carregada.");
+            }
+        }
+
+        // Carrega uma textura de arquivo usando ImageSharp
+        private int LoadTexture(string path)
+        {
+            try
+            {
+                using var image = Image.Load<Rgba32>(path);
+                image.Mutate(x => x.Flip(FlipMode.Vertical));
+                var pixels = new byte[image.Width * image.Height * 4];
+                image.CopyPixelDataTo(pixels);
+
+                int texId = GL.GenTexture();
+                GL.BindTexture(TextureTarget.Texture2D, texId);
+
+                // Alinhamento para imagens sem padding
+                GL.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    image.Width, image.Height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
+
+                // Filtros + mipmaps
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
+
+                GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
+
+                Console.WriteLine($"[TEXTURE] Sucesso: {Path.GetFileName(path)} {image.Width}x{image.Height} (ID: {texId})");
+
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                return texId;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TEXTURE] Falha: {path} - {ex.Message}");
+                return 0;
+            }
         }
 
         private void SetCommonUniforms(Shader shader)
@@ -133,6 +266,19 @@ namespace GLSLShaderLab
             shader.SetVector2("iMouse", new Vector2(MouseState.X, Size.Y - MouseState.Y));
             shader.SetInt("iMouseClick", MouseState.IsButtonDown(MouseButton.Left) ? 1 : 0);
             shader.SetVector3("viewPos", _cameraPos);
+
+            // Descobre quantas texture units temos e limita o bind
+            GL.GetInteger(GetPName.MaxCombinedTextureImageUnits, out int maxUnits);
+            int startUnit = 1; // Texture1 em diante (Texture0 reservado p/ iChannel0)
+            int canBind = Math.Min(_loadedTextures.Count, Math.Max(0, maxUnits - startUnit));
+
+            for (int i = 0; i < canBind; i++)
+            {
+                int unit = startUnit + i; // Texture1, 2, ...
+                GL.ActiveTexture(TextureUnit.Texture0 + unit);
+                GL.BindTexture(TextureTarget.Texture2D, _loadedTextures[i]);
+                shader.SetInt($"texture{i}", unit);
+            }
         }
 
         private void LoadShader(ShaderSelector.ShaderInfo shaderInfo)
@@ -194,31 +340,26 @@ namespace GLSLShaderLab
                     Console.WriteLine("Render mode: " + _renderMode);
                     break;
                 case Keys.Q:
-                    // Trocar shader anterior
                     _currentShaderIndex = (_currentShaderIndex - 1 + _availableShaders.Count) % _availableShaders.Count;
                     _selectedShader = _availableShaders[_currentShaderIndex];
                     LoadShader(_selectedShader);
                     break;
                 case Keys.E:
-                    // Trocar shader próximo
                     _currentShaderIndex = (_currentShaderIndex + 1) % _availableShaders.Count;
                     _selectedShader = _availableShaders[_currentShaderIndex];
                     LoadShader(_selectedShader);
                     break;
                 case Keys.Z:
-                    // Trocar modelo anterior
                     _currentModelIndex = (_currentModelIndex - 1 + _availableModels.Count) % _availableModels.Count;
                     _selectedModel = _availableModels[_currentModelIndex];
                     LoadModel(_selectedModel);
                     break;
                 case Keys.X:
-                    // Trocar modelo próximo
                     _currentModelIndex = (_currentModelIndex + 1) % _availableModels.Count;
                     _selectedModel = _availableModels[_currentModelIndex];
                     LoadModel(_selectedModel);
                     break;
                 case Keys.R:
-                    // Resetar câmera
                     _cameraPos = new Vector3(0.0f, 0.0f, 3.0f);
                     _cameraFront = new Vector3(0.0f, 0.0f, -1.0f);
                     _cameraUp = new Vector3(0.0f, 1.0f, 0.0f);
@@ -228,14 +369,24 @@ namespace GLSLShaderLab
                     _rotationY = 0.0f;
                     break;
                 case Keys.B:
-                    // Alternar uso de buffers
                     _useBuffers = !_useBuffers;
                     Console.WriteLine("Buffer system: " + (_useBuffers ? "ON" : "OFF"));
                     break;
                 case Keys.H:
-                    // Alternar exibição de ajuda
                     _showHelp = !_showHelp;
                     Console.WriteLine(_showHelp ? "Ajuda ativada" : "Ajuda desativada");
+                    if (_showHelp)
+                    {
+                        Console.WriteLine($"Pasta de texturas: {_resolvedTextureDir}");
+                        Console.WriteLine("Texturas carregadas:");
+                        for (int i = 0; i < _loadedTextureNames.Count; i++)
+                            Console.WriteLine($"  texture{i}: {_loadedTextureNames[i]}");
+                    }
+                    break;
+                case Keys.F5:
+                    Console.WriteLine("[TEXTURE] Recarregando...");
+                    _resolvedTextureDir = ResolveTexturesFolder();
+                    LoadTexturesFromFolder(_resolvedTextureDir, includeSubdirs: false);
                     break;
             }
         }
@@ -275,7 +426,6 @@ namespace GLSLShaderLab
                     if (_useBuffers)
                         RenderWithBuffers3D();
                     else
-
                     {
                         var model = Matrix4.CreateRotationY(MathHelper.DegreesToRadians(_rotationY));
                         var view = Matrix4.LookAt(_cameraPos, _cameraPos + _cameraFront, _cameraUp);
@@ -290,6 +440,7 @@ namespace GLSLShaderLab
 
             SwapBuffers();
         }
+
         private void RenderWithBuffers2D()
         {
             _bufferManager.BindCurrentBufferForWriting();
@@ -315,6 +466,18 @@ namespace GLSLShaderLab
                 var currentBuffer = _bufferManager.GetCurrentBuffer();
                 currentBuffer.BindForReading(TextureUnit.Texture0);
                 _copyShader.SetTexture("inputTexture", 0);
+
+                // Opcional: também disponibiliza texturas no copy pass
+                GL.GetInteger(GetPName.MaxCombinedTextureImageUnits, out int maxUnits);
+                int startUnit = 1;
+                int canBind = Math.Min(_loadedTextures.Count, Math.Max(0, maxUnits - startUnit));
+                for (int i = 0; i < canBind; i++)
+                {
+                    int unit = startUnit + i;
+                    GL.ActiveTexture(TextureUnit.Texture0 + unit);
+                    GL.BindTexture(TextureTarget.Texture2D, _loadedTextures[i]);
+                    _copyShader.SetInt($"texture{i}", unit);
+                }
 
                 GL.BindVertexArray(_vao);
                 GL.DrawElements(PrimitiveType.Triangles, 6, DrawElementsType.UnsignedInt, 0);
@@ -352,6 +515,18 @@ namespace GLSLShaderLab
                 currentBuffer.BindForReading(TextureUnit.Texture0);
                 _copyShader.SetTexture("inputTexture", 0);
 
+                // Opcional: também disponibiliza texturas no copy pass
+                GL.GetInteger(GetPName.MaxCombinedTextureImageUnits, out int maxUnits);
+                int startUnit = 1;
+                int canBind = Math.Min(_loadedTextures.Count, Math.Max(0, maxUnits - startUnit));
+                for (int i = 0; i < canBind; i++)
+                {
+                    int unit = startUnit + i;
+                    GL.ActiveTexture(TextureUnit.Texture0 + unit);
+                    GL.BindTexture(TextureTarget.Texture2D, _loadedTextures[i]);
+                    _copyShader.SetInt($"texture{i}", unit);
+                }
+
                 GL.BindVertexArray(_vao);
                 GL.DrawElements(PrimitiveType.Triangles, 6, DrawElementsType.UnsignedInt, 0);
             }
@@ -371,6 +546,10 @@ namespace GLSLShaderLab
             _model?.Dispose();
             _copyShader?.Dispose();
             _bufferManager?.Dispose();
+
+            // Libera as texturas carregadas
+            ReleaseLoadedTextures();
+
             if (_vao != 0) GL.DeleteVertexArray(_vao);
             if (_vbo != 0) GL.DeleteBuffer(_vbo);
             if (_ebo != 0) GL.DeleteBuffer(_ebo);
