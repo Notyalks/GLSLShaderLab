@@ -18,7 +18,7 @@ float ambient = 0.2;
 
 void main()
 {
-    // Amostra o normal do normal map (em espaço de textura)
+    // Amostra o normal do normal map (em espaï¿½o de textura)
     vec3 normalMap = texture(texture2, TexCoord).rgb;
     // Converte de [0,1] para [-1,1]
     normalMap = normalize(normalMap * 2.0 - 1.0);
