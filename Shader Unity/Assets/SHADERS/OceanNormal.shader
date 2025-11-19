@@ -1,95 +1,107 @@
-Shader "Custom/OceanWithNormal"
+Shader "Custom/URP/AnimatedOcean_Enhanced"
 {
     Properties
     {
-        _Color ("Cor Principal", Color) = (1,1,1,1)
+        [Header(Water And Animation)] 
+        _Color ("Albedo Color (RGB) and Opacity (A)", Color) = (0.1, 0.3, 0.5, 0.7) 
         _MainTex ("Albedo (RGB)", 2D) = "white" {}
+        _WaveSpeed ("Wave Speed", Float) = 1.0
+        _WavePower ("Wave Power", Float) = 0.05
+        
+        [Header(Surface And Lighting)]
         _NormalMap ("Normal Map", 2D) = "bump" {}
-        _NormalScale ("Intensidade do Normal Map", Range(0, 2)) = 1
-        _WaveSpeed ("Velocidade das Ondas", Float) = 1.0
-        _WavePower ("Força das Ondas", Float) = 0.5
-        _Shininess ("Brilho (Especularidade)", Range (0.03, 1)) = 0.1
+        _NormalScrollSpeed ("Normal Scroll Speed", Vector) = (0.01, 0.02, 0, 0)
+        _NormalScale ("Normal Intensity", Range(0, 2)) = 1.0
+        _Shininess ("Specular Power (Gloss)", Range (0.03, 1)) = 0.8
+        _FresnelPower ("Fresnel Power", Range(1, 10)) = 5.0
     }
-
     SubShader
     {
-        Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" }
-        LOD 300
+        Tags { "RenderType"="Transparent" "RenderPipeline"="UniversalPipeline" "Queue"="Transparent" }
+        LOD 200
 
         Pass
         {
-            Tags { "LightMode" = "UniversalForward" }
+            Tags { "LightMode" = "UniversalForward" } 
+            
+            Blend SrcAlpha OneMinusSrcAlpha 
+            ZWrite Off 
 
             HLSLPROGRAM
+
             #pragma target 3.5
             #pragma vertex vert
             #pragma fragment frag
-
+            
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile _ _SHADOWS_SOFT
-
+            
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl" 
 
             struct Attributes
             {
-                float4 positionOS : POSITION;
-                float3 normalOS   : NORMAL;
-                float4 tangentOS  : TANGENT;
-                float2 uv         : TEXCOORD0;
+                float4 positionOS      : POSITION;
+                float3 normalOS        : NORMAL;
+                float4 tangentOS       : TANGENT;
+                float2 uv              : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
             {
-                float4 positionCS : SV_POSITION;
-                float3 positionWS : TEXCOORD0;
-                float2 uv : TEXCOORD1;
-                float3 TtoW0 : TEXCOORD2;
-                float3 TtoW1 : TEXCOORD3;
-                float3 TtoW2 : TEXCOORD4;
+                float4 positionCS      : SV_POSITION;
+                float2 uv              : TEXCOORD0;
+                
+                float3 TtoW0 : TEXCOORD1; 
+                float3 TtoW1 : TEXCOORD2;
+                float3 TtoW2 : TEXCOORD3;
+                float3 positionWS      : TEXCOORD4; 
+                
+                float4 waveColor : COLOR; 
+                
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            // Texturas
             TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
             TEXTURE2D(_NormalMap); SAMPLER(sampler_NormalMap);
             float4 _MainTex_ST;
+            float4 _NormalMap_ST;
             float4 _Color;
-
-            // Parâmetros
             float _NormalScale;
+            float _Shininess;
             float _WaveSpeed;
             float _WavePower;
-            float _Shininess;
-
+            float4 _NormalScrollSpeed;
+            float _FresnelPower;
+            
             Varyings vert (Attributes input)
             {
                 Varyings output = (Varyings)0;
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-
-                // --- Animação das ondas ---
-                float waveX = cos(_Time.y * _WaveSpeed + input.positionOS.z);
-                float waveZ = sin(_Time.y * _WaveSpeed + input.positionOS.x);
-                input.positionOS.y += (waveX + waveZ) * _WavePower;
-
-                output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
-                output.positionCS = TransformWorldToHClip(output.positionWS);
-
-                // UV
+                
+                float waveValX = cos(_Time.y * _WaveSpeed + input.positionOS.z);
+                float waveValZ = cos(_Time.y * _WaveSpeed + input.positionOS.x);
+                
+                float4 animatedPosOS = input.positionOS;
+                animatedPosOS.y += (waveValX + waveValZ) * _WavePower;
+                
+                output.waveColor = float4(waveValX, waveValZ, 0, 0); 
+                
+                output.positionCS = TransformObjectToHClip(animatedPosOS.xyz); 
+                output.positionWS = TransformObjectToWorld(animatedPosOS.xyz);
                 output.uv = TRANSFORM_TEX(input.uv, _MainTex);
-
-                // Matrizes de Tangente / Normal / Binormal para espaço tangente
+                
                 float3 worldNormal = normalize(TransformObjectToWorldNormal(input.normalOS));
                 float3 worldTangent = normalize(TransformObjectToWorldDir(input.tangentOS.xyz));
                 float3 worldBinormal = cross(worldNormal, worldTangent) * input.tangentOS.w;
-
+                
                 output.TtoW0 = float3(worldTangent.x, worldBinormal.x, worldNormal.x);
                 output.TtoW1 = float3(worldTangent.y, worldBinormal.y, worldNormal.y);
                 output.TtoW2 = float3(worldTangent.z, worldBinormal.z, worldNormal.z);
-
+                
                 return output;
             }
 
@@ -97,41 +109,51 @@ Shader "Custom/OceanWithNormal"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                // Textura base e cor
-                float4 albedoColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv) * _Color;
-
-                // --- Normal Map ---
-                float4 normalSample = SAMPLE_TEXTURE2D(_NormalMap, sampler_NormalMap, input.uv);
-                float3 tangentNormal = UnpackNormal(normalSample);
+                float4 albedoMix1 = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv); 
+                float4 albedoMix2 = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv); 
+                float4 albedoColor = lerp(albedoMix1, albedoMix2, 0.02) * _Color;
+                
+                float2 normalUV = TRANSFORM_TEX(input.uv, _NormalMap);
+                normalUV.xy += _Time.y * _NormalScrollSpeed.xy;
+                
+                float4 normalSample = SAMPLE_TEXTURE2D(_NormalMap, sampler_NormalMap, normalUV);
+                float3 tangentNormal = UnpackNormal(normalSample); 
                 tangentNormal.xy *= _NormalScale;
-
-                float3x3 TBN = float3x3(input.TtoW0, input.TtoW1, input.TtoW2);
+                
+                float3x3 TBN = float3x3(input.TtoW0.xyz, input.TtoW1.xyz, input.TtoW2.xyz);
                 float3 worldNormal = normalize(mul(TBN, tangentNormal));
-
-                // --- Iluminação Principal ---
+                
                 Light mainLight = GetMainLight(TransformWorldToShadowCoord(input.positionWS));
-                float3 lightDir = normalize(mainLight.direction);
+
+                float3 lightDir = mainLight.direction;
+                
+                float3 lightColor = mainLight.color * mainLight.shadowAttenuation; 
+                
                 float3 viewDir = normalize(_WorldSpaceCameraPos.xyz - input.positionWS);
-
+                
+                float NdotV = 1.0 - max(0.0, dot(worldNormal, viewDir));
+                float fresnel = pow(NdotV, _FresnelPower);
+                
                 float diffTerm = max(0, dot(worldNormal, lightDir));
-                float3 diffuse = diffTerm * mainLight.color * albedoColor.rgb;
-
-                // --- Especular (brilho da água) ---
-                float3 halfwayDir = normalize(lightDir + viewDir);
-                float specTerm = pow(max(0, dot(worldNormal, halfwayDir)), _Shininess * 128);
-                float3 specular = specTerm * mainLight.color;
-
-                // --- Ambiente ---
+                float3 diffuse = diffTerm * lightColor * albedoColor.rgb;
+                
+                float3 halfwayDir = SafeNormalize(lightDir + viewDir);
+                float specPower = _Shininess * 128; 
+                float specTerm = pow(max(0, dot(worldNormal, halfwayDir)), specPower); 
+                
+                float3 specular = specTerm * lightColor * (1.0 + fresnel * 0.5); 
+                
                 float3 ambient = SampleSH(worldNormal) * albedoColor.rgb;
-
-                // --- Cor final ---
+                
                 float3 finalColor = ambient + diffuse + specular;
 
-                return float4(finalColor, albedoColor.a);
+                finalColor -= input.waveColor.y * 0.01 + input.waveColor.x * 0.07;
+                
+                float finalAlpha = albedoColor.a + (fresnel * 0.01); 
+                
+                return float4(finalColor, finalAlpha); 
             }
             ENDHLSL
         }
     }
-
-    FallBack "Diffuse"
 }
