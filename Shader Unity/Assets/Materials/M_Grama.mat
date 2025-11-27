@@ -1,0 +1,55 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: M_Grama
+  m_Shader: {fileID: 4800000, guid: 716691b78d8251546a8235eef09b6b0a, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _MainTex:
+        m_Texture: {fileID: 2800000, guid: 775a433667d7f044e9776d826ebd3667, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _NormalMap:
+        m_Texture: {fileID: 2800000, guid: 4bc6c5b0eaa98d548b7e5d1ad15f8705, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _Amplitude: 1
+    - _AnimSpeed: 3
+    - _CutoffEnd: 1000
+    - _CutoffStart: -1
+    - _CutoffXEnd: -500
+    - _CutoffXStart: 500
+    - _CutoffYEnd: 500
+    - _CutoffYStart: -500
+    - _FresnelPower: 5
+    - _IsAnimated: 1
+    - _NormalScale: 0.3
+    - _Shininess: 0.189
+    - _WaveFreq: 1
+    m_Colors:
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _DisplacementAxis: {r: 1, g: 1, b: 0, a: 0}
+    - _NormalScrollSpeed: {r: 0, g: 0, b: 0, a: 0}
+    - _PhaseOffset: {r: 0, g: 0, b: 1, a: 0}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1
